@@ -6,6 +6,8 @@ const mongoose = require("mongoose");
 const session = require("express-session");
 const passport = require("passport");
 const passportLocalMongoose = require("passport-local-mongoose");
+const GoogleStrategy = require("passport-google-oauth2").Strategy;
+const findOrCreate = require("mongoose-findorcreate");
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -14,7 +16,7 @@ app.use(express.static("public"));
 
 app.use(
   session({
-    secret: "My little secret.",
+    secret: process.env.SECRET,
     resave: false,
     saveUninitialized: false,
   })
@@ -31,6 +33,7 @@ const userSchema = new mongoose.Schema({
 });
 
 userSchema.plugin(passportLocalMongoose);
+userSchema.plugin(findOrCreate);
 
 const User = mongoose.model("User", userSchema);
 
@@ -38,9 +41,40 @@ passport.use(User.createStrategy());
 passport.serializeUser(User.serializeUser());
 passport.deserializeUser(User.deserializeUser());
 
+// Google Oauth 2
+passport.use(
+  new GoogleStrategy(
+    {
+      clientID: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      callbackURL: "http://localhost:3000/auth/google/secrets",
+      // userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
+      passReqToCallback: true,
+    },
+    function (request, accessToken, refreshToken, profile, done) {
+      User.findOrCreate({ googleId: profile.id }, function (err, user) {
+        return done(err, user);
+      });
+    }
+  )
+);
+
 app.get("/", function (req, res) {
   res.render("home");
 });
+
+app.get(
+  "/auth/google",
+  passport.authenticate("google", { scope: ["email", "profile"] })
+);
+
+app.get(
+  "/auth/google/secrets",
+  passport.authenticate("google", {
+    successRedirect: "/secrets",
+    failureRedirect: "/login",
+  })
+);
 
 app.get("/logout", function (req, res) {
   req.logout(function (err) {
@@ -73,20 +107,6 @@ app
         });
       }
     });
-    // .then(function (user) {
-    //   if (user != null) {
-    //     passport.authenticate("local").then(function (res) {
-    //       res.redirect("/secrets");
-    //     });
-    //   } else {
-    //     console.log("Error during login");
-    //     res.redirect("/login");
-    //   }
-    // })
-    // .catch(function (err) {
-    //   console.log(err);
-    //   res.redirect("/login");
-    // });
   });
 
 app
